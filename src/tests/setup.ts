@@ -7,7 +7,8 @@ global.console = {
   group: jest.fn(),
   groupEnd: jest.fn(),
   time: jest.fn(),
-  timeEnd: jest.fn()
+  timeEnd: jest.fn(),
+  info: jest.fn()
 }
 
 // Mock window methods
@@ -15,3 +16,5 @@ global.window = {
   ...global.window,
   setInterval: jest.fn()
 } as any
+
+export {}

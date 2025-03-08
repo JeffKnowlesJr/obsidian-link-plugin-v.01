@@ -1,3 +1,5 @@
+import { FolderStructureType } from '../utils/migrationUtils'
+
 export interface FolderTemplate {
   id: string
   name: string
@@ -17,6 +19,10 @@ export interface LinkPluginSettings {
   folderTemplates: FolderTemplate[]
   activeTemplateId: string
 
+  // Folder Structure Options
+  folderStructureType: FolderStructureType // Legacy or Hugo-compatible
+  alwaysEnsureArchive: boolean // Whether to ensure Archive folder always exists
+
   // Link Processing
   hugoCompatibleLinks: boolean // Ensure links are Hugo-compatible
 }
@@ -26,7 +32,8 @@ const DEFAULT_TEMPLATES: FolderTemplate[] = [
   {
     id: 'default',
     name: 'Default Structure',
-    description: 'The default folder structure with all components',
+    description:
+      'Basic structure with Journal, References, Workspace, and Documents',
     isEnabled: true,
     structure: JSON.stringify({
       Journal: {
@@ -36,47 +43,25 @@ const DEFAULT_TEMPLATES: FolderTemplate[] = [
       },
       Documents: {
         Images: {},
-        Videos: {},
-        Audio: {},
-        Other: {}
+        Files: {}
       },
       Templates: {},
       Workspace: {
-        'Client-X': {
-          'Project-Alpha': {}
-        },
-        'Client-Y': {
-          'Project-Beta': {}
-        },
-        'Client-Self': {
-          'Project-Zen': {}
-        }
+        Projects: {},
+        Notes: {}
       },
       References: {
-        Books: {
-          Technology: {},
-          Business: {}
-        },
-        Articles: {
-          'Blog-Posts': {},
-          Research: {}
-        },
-        Courses: {
-          Online: {},
-          Certifications: {}
-        }
+        Books: {},
+        Articles: {},
+        Resources: {}
       },
-      Archive: {
-        'Completed-Projects': {},
-        'Old-References': {},
-        'Old-Templates': {}
-      }
+      Archive: {}
     })
   },
   {
     id: 'minimal',
     name: 'Minimal Structure',
-    description: 'Just the essential components (Journal and Templates)',
+    description: 'Just the essentials (Journal and References only)',
     isEnabled: true,
     structure: JSON.stringify({
       Journal: {
@@ -84,13 +69,18 @@ const DEFAULT_TEMPLATES: FolderTemplate[] = [
           $MONTH$: {}
         }
       },
-      Templates: {}
+      References: {
+        Books: {},
+        Articles: {}
+      },
+      Templates: {},
+      Archive: {}
     })
   },
   {
-    id: 'research',
-    name: 'Research Focus',
-    description: 'Optimized for research and reference materials',
+    id: 'custom',
+    name: 'Custom Structure',
+    description: 'Select exactly which folders you need in your workflow',
     isEnabled: false,
     structure: JSON.stringify({
       Journal: {
@@ -98,24 +88,23 @@ const DEFAULT_TEMPLATES: FolderTemplate[] = [
           $MONTH$: {}
         }
       },
-      Templates: {},
-      References: {
-        Books: {
-          Technology: {},
-          Science: {},
-          Humanities: {}
-        },
-        Papers: {
-          Published: {},
-          Drafts: {},
-          References: {}
-        },
-        'Research-Notes': {
-          Experiments: {},
-          Observations: {},
-          Ideas: {}
-        }
+      // Optionally enable these folders based on your needs
+      /* 
+      Documents: {
+        Images: {},
+        Files: {}
       },
+      Workspace: {
+        'Projects': {},
+        'Notes': {}
+      },
+      References: {
+        Books: {},
+        Articles: {},
+        Resources: {}
+      },
+      */
+      Templates: {},
       Archive: {}
     })
   }
@@ -131,6 +120,10 @@ export const DEFAULT_SETTINGS: LinkPluginSettings = {
   // Folder Template Management
   folderTemplates: DEFAULT_TEMPLATES,
   activeTemplateId: 'default',
+
+  // Folder Structure Options
+  folderStructureType: FolderStructureType.VAULT_ROOT,
+  alwaysEnsureArchive: true,
 
   // Link Processing
   hugoCompatibleLinks: true

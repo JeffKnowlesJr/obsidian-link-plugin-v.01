@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "outDir": "dist"
+  },
+  "exclude": [
+    "node_modules",
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/__mocks__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "jest.config.js",
+    "jest.setup.js"
+  ]
+}

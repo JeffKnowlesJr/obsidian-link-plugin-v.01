@@ -1,6 +1,7 @@
 import {
   App,
   Editor,
+  EventRef,
   MarkdownView,
   Modal,
   Notice,
@@ -8,8 +9,11 @@ import {
   PluginSettingTab,
   Setting,
   TFile,
+  TFolder,
+  Vault,
   WorkspaceLeaf,
-  moment
+  moment,
+  setIcon
 } from 'obsidian'
 import { createLinkedNote } from './commands/createLinkedNote'
 import {
@@ -26,10 +30,17 @@ import {
   ensureFolderStructure,
   updateDailyNotesLocation,
   ROOT_FOLDER,
+  BASE_FOLDERS,
   createDailyNoteContent,
   migrateExistingDailyNotes
 } from './utils/folderUtils'
 import { parseDate } from './utils/momentHelper'
+import {
+  migrateFolderStructure,
+  FolderStructureType,
+  detectFolderStructureType,
+  ensureArchiveFolder
+} from './utils/migrationUtils'
 
 // Fix moment import
 const momentInstance = (window as any).moment || moment
@@ -48,7 +59,7 @@ class ConfirmationModal extends Modal {
 
     contentEl.createEl('h2', { text: 'Regenerate Folder Structure?' })
     contentEl.createEl('p', {
-      text: `The ${ROOT_FOLDER} folder has been deleted. Would you like to regenerate the folder structure?`
+      text: `Essential plugin folders are missing. Would you like to regenerate the folder structure?`
     })
 
     const buttonContainer = contentEl.createDiv('button-container')
@@ -95,6 +106,29 @@ export default class LinkPlugin extends Plugin {
       await this.loadSettings()
       console.debug('Settings loaded successfully:', this.settings)
 
+      // Detect current folder structure type if not explicitly set
+      if (!this.settings.folderStructureType) {
+        this.settings.folderStructureType = await detectFolderStructureType(
+          this.app.vault
+        )
+        await this.saveSettings()
+      }
+
+      // Ensure folder structure is using VAULT_ROOT type
+      console.log(`Ensuring folders use vault root structure...`)
+
+      this.settings.folderStructureType = FolderStructureType.VAULT_ROOT
+      await this.saveSettings()
+
+      const migrationLog = await migrateFolderStructure(
+        this.app,
+        true, // preserve files
+        this.settings.alwaysEnsureArchive
+      )
+
+      // Log migration results
+      migrationLog.forEach((entry) => console.log(entry))
+
       // Ensure folder structure and update daily notes location
       console.debug('Ensuring folder structure...')
       try {
@@ -137,33 +171,6 @@ export default class LinkPlugin extends Plugin {
       setTimeout(() => {
         this.patchDailyNotes()
       }, 1000)
-
-      // Add ribbon icons
-      this.addRibbonIcon('link', 'Create Linked Note', () => {
-        // Get active leaf
-        const activeLeaf = this.app.workspace.activeLeaf
-        if (!activeLeaf) {
-          new Notice('No active editor')
-          return
-        }
-
-        // Get editor from MarkdownView
-        const view = activeLeaf.view
-        if (!view) {
-          new Notice('No active view')
-          return
-        }
-
-        // Check if it's a markdown view with an editor
-        const markdownView = view as any
-        if (!markdownView.editor) {
-          new Notice('No markdown editor active')
-          return
-        }
-
-        // Create linked note
-        createLinkedNote(this, markdownView.editor)
-      })
 
       // Register file:create event to auto-enhance daily notes
       this.registerEvent(
@@ -226,14 +233,22 @@ export default class LinkPlugin extends Plugin {
   }
 
   private registerRootFolderCheck() {
-    // Check every 5 seconds for root folder existence
+    // Check every 5 seconds for essential folders
     this.registerInterval(
       window.setInterval(async () => {
         try {
-          const rootExists = await this.app.vault.adapter.exists(ROOT_FOLDER)
-          if (!rootExists) {
+          // Check for critical folders in the vault root
+          const templatesExists = await this.app.vault.adapter.exists(
+            BASE_FOLDERS.TEMPLATES
+          )
+          const journalExists = await this.app.vault.adapter.exists(
+            BASE_FOLDERS.JOURNAL
+          )
+
+          // If both essential folders are missing, prompt for regeneration
+          if (!templatesExists && !journalExists) {
             console.debug(
-              `${ROOT_FOLDER} folder not found, prompting for regeneration`
+              `Essential plugin folders not found, prompting for regeneration`
             )
             new ConfirmationModal(this.app, async () => {
               try {
@@ -241,9 +256,7 @@ export default class LinkPlugin extends Plugin {
                 const newLocation = await updateDailyNotesLocation(this.app)
                 this.settings.dailyNotesLocation = newLocation
                 await this.saveSettings()
-                new Notice(
-                  `${ROOT_FOLDER} folder structure has been regenerated`
-                )
+                new Notice(`Essential folder structure has been regenerated`)
               } catch (error) {
                 console.error('Error regenerating folder structure:', error)
                 new Notice('Failed to regenerate folder structure')
@@ -251,31 +264,21 @@ export default class LinkPlugin extends Plugin {
             }).open()
           }
         } catch (error) {
-          console.error('Error checking root folder existence:', error)
+          console.error('Error checking essential folders:', error)
         }
       }, 5000)
     )
   }
 
   private registerCommands() {
-    console.debug('Registering format link command...')
-    this.addCommand({
-      id: 'format-link',
-      name: 'Format selected link',
-      editorCallback: (editor: Editor, view: MarkdownView) => {
-        console.debug('Format link command triggered')
-        console.debug('Current selection:', editor.getSelection())
-        new Notice('Link formatting command triggered')
-      }
-    })
-
+    // Create linked note command
     console.debug('Registering create linked note command...')
     this.addCommand({
       id: 'create-linked-note',
-      name: 'Create new linked note',
-      editorCallback: async (editor: Editor, view: MarkdownView) => {
+      name: 'Create Linked Note From Selection',
+      editorCallback: (editor: Editor, view: MarkdownView) => {
         console.debug('Create linked note command triggered')
-        await createLinkedNote(this, editor)
+        createLinkedNote(this, editor, view)
       }
     })
   }
@@ -426,6 +429,593 @@ export default class LinkPlugin extends Plugin {
     // Start the first check
     scheduleNextCheck()
   }
+
+  /**
+   * Apply the folder structure type setting
+   */
+  async migrateToFolderStructure(): Promise<void> {
+    // Update the setting
+    this.settings.folderStructureType = FolderStructureType.VAULT_ROOT
+    await this.saveSettings()
+
+    // Perform the migration
+    const migrationLog = await migrateFolderStructure(
+      this.app,
+      true, // preserve files
+      this.settings.alwaysEnsureArchive
+    )
+
+    // Log migration results
+    migrationLog.forEach((entry) => console.log(entry))
+
+    // Show success notice
+    new Notice(`Folder structure updated successfully`)
+  }
+
+  /**
+   * Applies the selected template structure immediately
+   */
+  async applySelectedTemplate(): Promise<void> {
+    console.log(
+      `Applying template structure for template: ${this.settings.activeTemplateId}`
+    )
+
+    try {
+      // Ensure folder structure is updated with the selected template
+      await ensureFolderStructure(this.app, this.settings)
+
+      // Show success notice
+      new Notice(
+        `Template "${this.settings.activeTemplateId}" applied successfully`
+      )
+    } catch (error) {
+      console.error('Error applying template:', error)
+      new Notice(`Error applying template: ${error.message}`)
+    }
+  }
+
+  /**
+   * Applies the selected template with proper cleanup of unused folders
+   * Unused folders will either be deleted if empty or moved to Archive
+   */
+  async applySelectedTemplateWithCleanup(): Promise<void> {
+    try {
+      console.log(`---------------------------------------`)
+      console.log(`APPLYING TEMPLATE WITH CLEANUP START`)
+      console.log(
+        `Applying template with cleanup: ${this.settings.activeTemplateId}`
+      )
+      console.log(
+        `Current folder structure type: ${this.settings.folderStructureType}`
+      )
+
+      // Find the active template
+      const activeTemplate = this.settings.folderTemplates.find(
+        (template) =>
+          template.id === this.settings.activeTemplateId && template.isEnabled
+      )
+
+      console.log(
+        `Active template found:`,
+        activeTemplate ? activeTemplate.name : 'NONE'
+      )
+
+      if (!activeTemplate) {
+        throw new Error('No active template found')
+      }
+
+      // Parse the structure to determine which folders should exist
+      let structure: Record<string, any> = {}
+      try {
+        structure = JSON.parse(activeTemplate.structure)
+        console.log(
+          `Template structure parsed successfully with root folders:`,
+          Object.keys(structure)
+        )
+      } catch (e) {
+        console.error('Invalid template structure JSON:', e)
+        throw new Error('Invalid template structure')
+      }
+
+      // Get flat list of root folders that should exist in the template
+      const templateRootFolders = Object.keys(structure)
+      console.log('Template root folders:', templateRootFolders)
+
+      // Check which root folders currently exist
+      const vault = this.app.vault
+      const rootFolders = vault
+        .getRoot()
+        .children.filter((item) => item instanceof TFolder)
+        .map((folder) => folder.name)
+
+      console.log('Existing root folders:', rootFolders)
+
+      // Create Archive folder if it doesn't exist
+      const archiveFolderName = 'Archive'
+      let archiveFolder: TFolder | null = vault
+        .getRoot()
+        .children.find(
+          (item) => item instanceof TFolder && item.name === archiveFolderName
+        ) as TFolder
+
+      if (!archiveFolder) {
+        try {
+          await vault.createFolder(archiveFolderName)
+          archiveFolder = vault
+            .getRoot()
+            .children.find(
+              (item) =>
+                item instanceof TFolder && item.name === archiveFolderName
+            ) as TFolder
+          console.log('Created Archive folder')
+        } catch (error) {
+          console.error('Error creating Archive folder:', error)
+        }
+      }
+
+      // STEP 1: Check Archive for folders that are part of the template and restore them
+      if (archiveFolder) {
+        console.log(`Checking Archive folder for content to restore...`)
+
+        for (const templateFolderName of templateRootFolders) {
+          // Skip Archive folder itself
+          if (templateFolderName === archiveFolderName) continue
+
+          // Check if this template folder exists in the Archive
+          const archivedFolderPath = `${archiveFolder.path}/${templateFolderName}`
+          if (await vault.adapter.exists(archivedFolderPath)) {
+            console.log(
+              `Found archived folder that matches template: ${templateFolderName}`
+            )
+
+            // Check if folder already exists in root (could be empty)
+            const rootPath = templateFolderName
+            const folderExistsInRoot = await vault.adapter.exists(rootPath)
+
+            if (folderExistsInRoot) {
+              // If it already exists in root, we need to merge contents
+              console.log(
+                `Folder ${templateFolderName} exists in both Archive and root, merging...`
+              )
+
+              try {
+                // Get the archived folder
+                const archivedFolder = archiveFolder.children.find(
+                  (item) =>
+                    item instanceof TFolder && item.name === templateFolderName
+                ) as TFolder
+
+                if (archivedFolder) {
+                  // Get the root folder
+                  const rootFolder = vault
+                    .getRoot()
+                    .children.find(
+                      (item) =>
+                        item instanceof TFolder &&
+                        item.name === templateFolderName
+                    ) as TFolder
+
+                  // Recursively merge folder contents
+                  await this.mergeFolderContents(
+                    archivedFolder,
+                    rootFolder,
+                    vault
+                  )
+
+                  // If archived folder is now empty, delete it
+                  if (archivedFolder.children.length === 0) {
+                    await vault.delete(archivedFolder)
+                    console.log(
+                      `Deleted empty archived folder after merging: ${archivedFolder.path}`
+                    )
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `Error merging folder ${templateFolderName}:`,
+                  error
+                )
+              }
+            } else {
+              // If it doesn't exist in root, move the entire folder
+              console.log(
+                `Moving ${templateFolderName} from Archive to root...`
+              )
+
+              try {
+                // Create the target folder in root
+                await vault.createFolder(rootPath)
+
+                // Get source folder in archive
+                const sourceFolder = archiveFolder.children.find(
+                  (item) =>
+                    item instanceof TFolder && item.name === templateFolderName
+                ) as TFolder
+
+                if (sourceFolder) {
+                  // Get the newly created target folder
+                  const targetFolder = vault
+                    .getRoot()
+                    .children.find(
+                      (item) =>
+                        item instanceof TFolder &&
+                        item.name === templateFolderName
+                    ) as TFolder
+
+                  // Move all contents
+                  await this.mergeFolderContents(
+                    sourceFolder,
+                    targetFolder,
+                    vault
+                  )
+
+                  // Delete the now-empty source folder in Archive
+                  if (sourceFolder.children.length === 0) {
+                    await vault.delete(sourceFolder)
+                    console.log(
+                      `Deleted empty archived folder after moving: ${sourceFolder.path}`
+                    )
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `Error moving folder ${templateFolderName} from Archive:`,
+                  error
+                )
+              }
+            }
+          }
+        }
+      }
+
+      // STEP 2: Process each existing root folder that's not in the template
+      for (const folderName of rootFolders) {
+        // Skip special folders and folders in the template
+        if (
+          folderName === archiveFolderName ||
+          folderName === '.obsidian' ||
+          templateRootFolders.includes(folderName)
+        ) {
+          console.log(`Skipping folder (special or in template): ${folderName}`)
+          continue
+        }
+
+        console.log(`Processing folder: ${folderName}`)
+        const folder = vault
+          .getRoot()
+          .children.find(
+            (item) => item instanceof TFolder && item.name === folderName
+          ) as TFolder
+
+        if (!folder) {
+          console.log(`Folder not found in vault: ${folderName}`)
+          continue
+        }
+
+        // Check if the folder is empty
+        const isEmpty = folder.children.length === 0
+        console.log(
+          `Folder ${folderName} is ${isEmpty ? 'empty' : 'not empty'} (${
+            folder.children.length
+          } items)`
+        )
+
+        if (isEmpty) {
+          // Delete empty folders
+          try {
+            await vault.delete(folder)
+            console.log(`Deleted empty folder: ${folderName}`)
+          } catch (error) {
+            console.error(`Error deleting folder ${folderName}:`, error)
+          }
+        } else if (archiveFolder) {
+          // Move non-empty folders to Archive
+          try {
+            // Create a folder with the same name in Archive (or use existing one)
+            const archivePath = `${archiveFolder.path}/${folderName}`
+
+            // Check if the archive subfolder already exists
+            if (await vault.adapter.exists(archivePath)) {
+              console.log(
+                `Archive subfolder ${archivePath} already exists, using it`
+              )
+            } else {
+              // Create new archive subfolder
+              await vault.createFolder(archivePath)
+              console.log(`Created archive folder: ${archivePath}`)
+            }
+
+            // Move all contents to the archive folder
+            for (const child of folder.children) {
+              // Check if file already exists in destination
+              const destinationPath = `${archivePath}/${child.name}`
+              if (await vault.adapter.exists(destinationPath)) {
+                // Skip or overwrite based on preference (skipping for safety)
+                console.log(
+                  `File ${child.name} already exists in archive, skipping`
+                )
+                continue
+              }
+
+              try {
+                await vault.rename(child, destinationPath)
+                console.log(`Moved item ${child.name} to ${archivePath}`)
+              } catch (error) {
+                console.error(
+                  `Error moving ${child.name} to archive: ${error.message}`
+                )
+              }
+            }
+
+            // Delete the now-empty original folder
+            if (folder.children.length === 0) {
+              await vault.delete(folder)
+              console.log(
+                `Moved folder ${folderName} to Archive and deleted original`
+              )
+            } else {
+              console.log(
+                `Some items in ${folderName} could not be moved, folder not deleted`
+              )
+            }
+          } catch (error) {
+            console.error(
+              `Error moving folder ${folderName} to Archive:`,
+              error
+            )
+          }
+        }
+      }
+
+      // Check for any empty folders recursively and clean them up
+      await this.recursivelyCleanEmptyFolders(vault)
+
+      // Apply the template
+      console.log('Applying template structure...')
+      await ensureFolderStructure(this.app, this.settings)
+      console.log('Template applied successfully')
+
+      // Run the recursive cleanup again after applying the template
+      // to catch any newly empty folders
+      await this.recursivelyCleanEmptyFolders(vault)
+
+      // Update daily notes location
+      console.log('Updating daily notes location...')
+      await updateDailyNotesLocation(this.app)
+      console.log('Daily notes location updated')
+
+      // Show success notice
+      new Notice(`Template applied with cleanup`)
+      console.log(`APPLYING TEMPLATE WITH CLEANUP COMPLETE`)
+      console.log(`---------------------------------------`)
+    } catch (error) {
+      console.error('Error applying template with cleanup:', error)
+      new Notice(`Error: ${error.message}`)
+      throw error
+    }
+  }
+
+  /**
+   * Recursively merges the contents of a source folder into a target folder
+   */
+  private async mergeFolderContents(
+    sourceFolder: TFolder,
+    targetFolder: TFolder,
+    vault: Vault
+  ): Promise<void> {
+    // Process all children of the source folder
+    for (const child of [...sourceFolder.children]) {
+      const destinationPath = `${targetFolder.path}/${child.name}`
+
+      if (child instanceof TFile) {
+        // It's a file - check if it exists in target
+        if (await vault.adapter.exists(destinationPath)) {
+          console.log(`File ${child.name} already exists in target, skipping`)
+          continue
+        }
+
+        // Move the file to target
+        try {
+          await vault.rename(child, destinationPath)
+          console.log(`Moved file ${child.name} to ${targetFolder.path}`)
+        } catch (error) {
+          console.error(`Error moving file ${child.name}:`, error)
+        }
+      } else if (child instanceof TFolder) {
+        // It's a subfolder - create if doesn't exist and recursively process
+        if (!(await vault.adapter.exists(destinationPath))) {
+          await vault.createFolder(destinationPath)
+          console.log(`Created subfolder: ${destinationPath}`)
+        }
+
+        // Get or create the target subfolder
+        const targetSubfolder = targetFolder.children.find(
+          (item) => item instanceof TFolder && item.name === child.name
+        ) as TFolder | undefined
+
+        if (targetSubfolder) {
+          // Recursively merge the contents
+          await this.mergeFolderContents(child, targetSubfolder, vault)
+
+          // If source subfolder is now empty, delete it
+          if (child.children.length === 0) {
+            await vault.delete(child)
+            console.log(`Deleted empty source subfolder: ${child.path}`)
+          }
+        } else {
+          // Target subfolder not found - this shouldn't happen since we just created it if needed
+          console.error(`Target subfolder not found: ${destinationPath}`)
+
+          // Try to get it directly from the vault
+          const refreshedTarget = vault.getAbstractFileByPath(destinationPath)
+          if (refreshedTarget instanceof TFolder) {
+            await this.mergeFolderContents(child, refreshedTarget, vault)
+
+            // Clean up empty source folder
+            if (child.children.length === 0) {
+              await vault.delete(child)
+              console.log(
+                `Deleted empty source subfolder after refresh: ${child.path}`
+              )
+            }
+          } else {
+            console.error(
+              `Unable to find target folder after creation: ${destinationPath}`
+            )
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Recursively checks for empty folders in the vault and deletes them,
+   * but preserves folders defined in the template structure even if empty
+   */
+  private async recursivelyCleanEmptyFolders(vault: Vault): Promise<boolean> {
+    console.log('Starting recursive cleanup of empty folders...')
+    let emptyFoldersDeleted = false
+
+    // Get the template structure to check which folders should be preserved
+    let templateFolders: string[] = []
+    try {
+      // Find the active template
+      const activeTemplate = this.settings.folderTemplates.find(
+        (template) =>
+          template.id === this.settings.activeTemplateId && template.isEnabled
+      )
+
+      if (activeTemplate) {
+        // Parse template structure and get root folder names
+        const structure = JSON.parse(activeTemplate.structure)
+        templateFolders = Object.keys(structure).map((folder) => folder)
+        console.log('Template folders to preserve:', templateFolders)
+      }
+    } catch (error) {
+      console.error('Error parsing template structure:', error)
+    }
+
+    // Helper function to check if a folder is empty (or contains only empty folders)
+    const isFolderEmpty = async (folder: TFolder): Promise<boolean> => {
+      if (folder.children.length === 0) {
+        return true
+      }
+
+      // If folder only contains other folders (no files), check if those are empty
+      const hasFiles = folder.children.some((child) => child instanceof TFile)
+      if (hasFiles) {
+        return false
+      }
+
+      // Check if all subfolders are empty
+      for (const child of folder.children) {
+        if (child instanceof TFolder) {
+          const isEmpty = await isFolderEmpty(child)
+          if (!isEmpty) {
+            return false
+          }
+        }
+      }
+
+      return true
+    }
+
+    // Helper function to check if a folder should be preserved (part of template)
+    const shouldPreserveFolder = (folder: TFolder): boolean => {
+      // Special folders should never be deleted
+      if (folder.name === '.obsidian' || folder.name === 'Archive') {
+        return true
+      }
+
+      // Always preserve certain essential folders
+      const essentialFolders = ['Journal', 'Templates']
+      if (essentialFolders.includes(folder.name)) {
+        console.log(`Preserving essential folder: ${folder.name}`)
+        return true
+      }
+
+      // Check if this is a root folder defined in the template
+      if (templateFolders.includes(folder.name)) {
+        console.log(`Preserving template folder: ${folder.name}`)
+        return true
+      }
+
+      // Check if this is a subfolder of a template folder
+      // For example: Journal/y_2024, Journal/y_2024/March, etc.
+      for (const templateFolder of templateFolders) {
+        if (folder.path.startsWith(templateFolder + '/')) {
+          console.log(`Preserving template subfolder: ${folder.path}`)
+          return true
+        }
+      }
+
+      // Also preserve year and month folders in Journal structure
+      if (
+        folder.path.indexOf('Journal/') === 0 &&
+        (/Journal\/y_\d{4}$/.test(folder.path) || // Year folders like Journal/y_2024
+          /Journal\/y_\d{4}\/[A-Z][a-z]+$/.test(folder.path)) // Month folders like Journal/y_2024/March
+      ) {
+        console.log(`Preserving date structure folder: ${folder.path}`)
+        return true
+      }
+
+      return false
+    }
+
+    // Helper function to recursively delete empty folders
+    const deleteEmptyFolders = async (folder: TFolder): Promise<boolean> => {
+      // Check if this folder should be preserved
+      if (shouldPreserveFolder(folder)) {
+        return false
+      }
+
+      let anyDeleted = false
+
+      // First, try to delete any empty subfolders
+      for (const child of [...folder.children]) {
+        if (child instanceof TFolder) {
+          const deleted = await deleteEmptyFolders(child)
+          if (deleted) {
+            anyDeleted = true
+          }
+        }
+      }
+
+      // After processing subfolders, check if this folder is now empty
+      if (await isFolderEmpty(folder)) {
+        try {
+          await vault.delete(folder)
+          console.log(`Deleted empty folder: ${folder.path}`)
+          return true
+        } catch (error) {
+          console.error(`Error deleting empty folder ${folder.path}:`, error)
+        }
+      }
+
+      return anyDeleted
+    }
+
+    // Start with the root level folders
+    const rootFolders = vault
+      .getRoot()
+      .children.filter((item) => item instanceof TFolder)
+
+    for (const folder of rootFolders) {
+      if (folder instanceof TFolder) {
+        const deleted = await deleteEmptyFolders(folder)
+        if (deleted) {
+          emptyFoldersDeleted = true
+        }
+      }
+    }
+
+    console.log(
+      `Recursive cleanup ${
+        emptyFoldersDeleted ? 'deleted some' : 'found no'
+      } empty folders`
+    )
+    return emptyFoldersDeleted
+  }
 }
 
 class LinkSettingTab extends PluginSettingTab {
@@ -509,64 +1099,411 @@ class LinkSettingTab extends PluginSettingTab {
           })
       )
 
-    // Folder Structure Templates Section
-    containerEl.createEl('h3', { text: 'Folder Structure Templates' })
-    containerEl.createEl('p', {
-      text: 'Configure folder structure templates. These work independently of Templater and other template plugins.'
+    // Folder Templates
+    const templatesHeading = containerEl.createEl('h3', {
+      text: 'Folder Templates'
     })
 
-    // Template selection
-    new Setting(containerEl)
-      .setName('Active Template')
-      .setDesc('Choose which folder structure template to use')
-      .addDropdown((dropdown) => {
-        const enabledTemplates = this.plugin.settings.folderTemplates.filter(
-          (t) => t.isEnabled
-        )
-        enabledTemplates.forEach((template) => {
-          dropdown.addOption(template.id, template.name)
+    // Add a help text for folder templates
+    const templateHelp = containerEl.createEl('p', {
+      cls: 'setting-item-description'
+    })
+    templateHelp.textContent =
+      'Select a template to use for your folder structure. Changing templates will clean up unused folders.'
+
+    // Create a templates container with a more compact display
+    const templatesContainer = containerEl.createDiv({ cls: 'template-grid' })
+
+    // Add CSS for the template grid
+    const style = document.createElement('style')
+    style.textContent = `
+      .template-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .template-card {
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 5px;
+        padding: 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .template-card:hover {
+        background-color: var(--background-secondary-alt);
+      }
+      .template-card.active {
+        border-color: var(--interactive-accent);
+        background-color: var(--background-secondary-alt);
+      }
+      .template-card.disabled {
+        opacity: 0.6;
+      }
+      .template-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      .template-card-title {
+        font-weight: bold;
+        margin: 0;
+      }
+      .template-card-description {
+        font-size: 0.8em;
+        color: var(--text-muted);
+        margin: 0;
+      }
+    `
+    document.head.appendChild(style)
+
+    // Add template cards for ALL templates, regardless of enabled status
+    this.plugin.settings.folderTemplates.forEach((template: FolderTemplate) => {
+      const templateCard = templatesContainer.createDiv({
+        cls: `template-card ${
+          this.plugin.settings.activeTemplateId === template.id ? 'active' : ''
+        } ${!template.isEnabled ? 'disabled' : ''}`
+      })
+
+      // Template header with title and toggle
+      const templateHeader = templateCard.createDiv({
+        cls: 'template-card-header'
+      })
+      const templateTitle = templateHeader.createEl('h4', {
+        text: template.name,
+        cls: 'template-card-title'
+      })
+
+      // Checkbox for enabling/disabling
+      const templateToggle = templateHeader.createEl('div')
+      setIcon(templateToggle, template.isEnabled ? 'check-circle' : 'circle')
+
+      // Template description
+      templateCard.createEl('p', {
+        text: template.description,
+        cls: 'template-card-description'
+      })
+
+      // Click handler for the entire card
+      templateCard.addEventListener('click', async () => {
+        // First, ensure all other templates are disabled except this one
+        // This makes templates work like radio buttons
+        this.plugin.settings.folderTemplates.forEach((t) => {
+          if (t.id !== template.id) {
+            t.isEnabled = false
+
+            // Also update the UI for other template cards
+            document.querySelectorAll('.template-card').forEach((el) => {
+              const titleEl = el.querySelector('.template-card-title')
+              if (titleEl && titleEl.textContent === t.name) {
+                el.classList.add('disabled')
+                const toggleIcon = el.querySelector(
+                  '.template-card-header > div'
+                ) as HTMLElement
+                if (toggleIcon) {
+                  setIcon(toggleIcon, 'circle')
+                }
+              }
+            })
+          }
         })
-        return dropdown
-          .setValue(this.plugin.settings.activeTemplateId)
-          .onChange(async (value) => {
-            this.plugin.settings.activeTemplateId = value
-            await this.plugin.saveSettings()
+
+        // Then enable this template
+        template.isEnabled = true
+        setIcon(templateToggle, 'check-circle')
+        templateCard.classList.remove('disabled')
+
+        // Set it as active
+        this.plugin.settings.activeTemplateId = template.id
+
+        // Update UI to show this template as active
+        document.querySelectorAll('.template-card').forEach((el) => {
+          el.classList.remove('active')
+        })
+        templateCard.classList.add('active')
+
+        // Show custom options if this is the custom template
+        if (template.id === 'custom') {
+          // Remove any existing custom options first
+          const existingCustomOptions = containerEl.querySelector(
+            '.custom-template-options'
+          )
+          if (existingCustomOptions) {
+            existingCustomOptions.remove()
+          }
+
+          // Create options container
+          const customOptionsContainer = containerEl.createDiv({
+            cls: 'custom-template-options'
           })
-      })
+          customOptionsContainer.style.marginTop = '16px'
+          customOptionsContainer.style.padding = '16px'
+          customOptionsContainer.style.border =
+            '1px solid var(--background-modifier-border)'
+          customOptionsContainer.style.borderRadius = '5px'
 
-    // Display each template with enable/disable toggle and preview button
-    const templateContainer = containerEl.createDiv(
-      'template-settings-container'
-    )
+          // Add heading
+          customOptionsContainer.createEl('h4', {
+            text: 'Customize Template Folders'
+          })
+          customOptionsContainer.createEl('p', {
+            text: 'Select which folders to include in your custom template:',
+            cls: 'setting-item-description'
+          })
 
-    this.plugin.settings.folderTemplates.forEach((template) => {
-      const templateDiv = templateContainer.createDiv('template-item')
-      templateDiv.style.border = '1px solid var(--background-modifier-border)'
-      templateDiv.style.borderRadius = '4px'
-      templateDiv.style.padding = '10px'
-      templateDiv.style.marginBottom = '10px'
+          // Get custom structure
+          let customStructure: Record<string, any> = {}
+          try {
+            customStructure = JSON.parse(template.structure)
+          } catch (e) {
+            console.error('Error parsing custom template structure', e)
+            customStructure = {}
+          }
 
-      const header = templateDiv.createDiv('template-header')
-      header.style.display = 'flex'
-      header.style.justifyContent = 'space-between'
-      header.style.alignItems = 'center'
-      header.style.marginBottom = '8px'
+          // Create toggle for each possible folder
+          const folderOptions = [
+            { id: 'Documents', label: 'Documents (Files, Images)' },
+            { id: 'Workspace', label: 'Workspace (Projects, Notes)' },
+            {
+              id: 'References',
+              label: 'References (Books, Articles, Resources)'
+            }
+          ]
 
-      header.createEl('h4', { text: template.name })
-      templateDiv.createEl('p', { text: template.description })
+          folderOptions.forEach((option) => {
+            const folderSetting = new Setting(customOptionsContainer)
+              .setName(option.label)
+              .setDesc(
+                `Include the ${option.id} folder in your custom template`
+              )
+              .addToggle((toggle) => {
+                // Check if this folder exists in the structure
+                const isEnabled = !!customStructure[option.id]
 
-      // Preview button
-      const previewBtn = templateDiv.createEl('button', {
-        text: 'Preview Structure'
-      })
-      previewBtn.addEventListener('click', () => {
-        try {
-          const structure = JSON.parse(template.structure)
-          new StructurePreviewModal(this.app, structure).open()
-        } catch (e) {
-          new Notice('Invalid structure format')
+                toggle.setValue(isEnabled).onChange(async (value) => {
+                  // Parse the current structure
+                  let structure: Record<string, any> = {}
+                  try {
+                    structure = JSON.parse(template.structure)
+                  } catch (e) {
+                    console.error('Error parsing template structure', e)
+                    structure = {}
+                  }
+
+                  // Add or remove the folder
+                  if (value) {
+                    // Add the folder with default subfolders
+                    if (option.id === 'Documents') {
+                      structure.Documents = {
+                        Images: {},
+                        Files: {}
+                      }
+                    } else if (option.id === 'Workspace') {
+                      structure.Workspace = {
+                        Projects: {},
+                        Notes: {}
+                      }
+                    } else if (option.id === 'References') {
+                      structure.References = {
+                        Books: {},
+                        Articles: {},
+                        Resources: {}
+                      }
+                    }
+                  } else {
+                    // Remove the folder
+                    delete structure[option.id]
+                  }
+
+                  // Update the template structure
+                  template.structure = JSON.stringify(structure)
+                  await this.plugin.saveSettings()
+                })
+              })
+          })
+
+          // Insert the custom options right after the template grid
+          const templateActionDiv = containerEl.createDiv({
+            cls: 'template-actions'
+          })
+          const saveTemplateButton = templateActionDiv.createEl('button', {
+            text: 'Apply Template Changes',
+            cls: 'mod-cta'
+          })
+
+          // Make the button more noticeable
+          const actionsStyle = document.createElement('style')
+          actionsStyle.textContent = `
+            .template-actions {
+              display: flex;
+              justify-content: flex-end;
+              margin-top: 16px;
+              margin-bottom: 24px;
+            }
+            button.mod-cta {
+              font-weight: bold;
+            }
+          `
+          document.head.appendChild(actionsStyle)
+
+          saveTemplateButton.addEventListener('click', async () => {
+            // Show a confirmation dialog
+            if (
+              confirm(
+                'This will apply your selected template. Unused folders will either be deleted (if empty) or moved to Archive. Continue?'
+              )
+            ) {
+              try {
+                saveTemplateButton.disabled = true
+                saveTemplateButton.textContent = 'Applying changes...'
+
+                // Apply the template changes with cleanup
+                await this.plugin.applySelectedTemplateWithCleanup()
+
+                // Show success message
+                saveTemplateButton.textContent = 'Changes applied successfully!'
+
+                // Reset button after a delay
+                setTimeout(() => {
+                  saveTemplateButton.disabled = false
+                  saveTemplateButton.textContent = 'Apply Template Changes'
+                }, 2000)
+              } catch (error) {
+                saveTemplateButton.textContent = 'Error applying changes'
+                console.error('Error applying template:', error)
+
+                // Reset button after a delay
+                setTimeout(() => {
+                  saveTemplateButton.disabled = false
+                  saveTemplateButton.textContent = 'Apply Template Changes'
+                }, 2000)
+              }
+            }
+          })
+
+          // Insert the custom options before the template action div
+          const existingActionDiv =
+            containerEl.querySelector('.template-actions')
+          if (existingActionDiv) {
+            containerEl.insertBefore(customOptionsContainer, existingActionDiv)
+          } else {
+            containerEl.appendChild(customOptionsContainer)
+          }
+        } else {
+          // Remove custom options if switching away from custom template
+          const existingCustomOptions = containerEl.querySelector(
+            '.custom-template-options'
+          )
+          if (existingCustomOptions) {
+            existingCustomOptions.remove()
+          }
         }
+
+        // Show feedback about what to do next
+        new Notice(
+          `Selected template "${template.name}". Click "Apply Template Changes" to update folder structure.`,
+          5000
+        )
+
+        // Save settings
+        await this.plugin.saveSettings()
       })
+
+      // Toggle handler
+      templateToggle.addEventListener('click', async (e) => {
+        e.stopPropagation() // Prevent triggering the card click
+
+        template.isEnabled = !template.isEnabled
+        setIcon(templateToggle, template.isEnabled ? 'check-circle' : 'circle')
+
+        if (template.isEnabled) {
+          templateCard.classList.remove('disabled')
+        } else {
+          templateCard.classList.add('disabled')
+        }
+
+        // If disabling the active template, find another one to make active
+        if (
+          !template.isEnabled &&
+          this.plugin.settings.activeTemplateId === template.id
+        ) {
+          const nextTemplate = this.plugin.settings.folderTemplates.find(
+            (t) => t.isEnabled && t.id !== template.id
+          )
+
+          if (nextTemplate) {
+            this.plugin.settings.activeTemplateId = nextTemplate.id
+            // Update UI
+            document.querySelectorAll('.template-card').forEach((el) => {
+              el.classList.remove('active')
+              const titleEl = el.querySelector('.template-card-title')
+              if (titleEl && titleEl.textContent === nextTemplate.name) {
+                el.classList.add('active')
+              }
+            })
+          }
+        }
+
+        await this.plugin.saveSettings()
+      })
+    })
+
+    // After all template cards are created, add the Apply Changes button
+    const templateActionDiv = containerEl.createDiv({ cls: 'template-actions' })
+    const saveTemplateButton = templateActionDiv.createEl('button', {
+      text: 'Apply Template Changes',
+      cls: 'mod-cta'
+    })
+
+    // Make the button more noticeable
+    const actionsStyle = document.createElement('style')
+    actionsStyle.textContent = `
+      .template-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 16px;
+        margin-bottom: 24px;
+      }
+      button.mod-cta {
+        font-weight: bold;
+      }
+    `
+    document.head.appendChild(actionsStyle)
+
+    saveTemplateButton.addEventListener('click', async () => {
+      // Show a confirmation dialog
+      if (
+        confirm(
+          'This will apply your selected template. Unused folders will either be deleted (if empty) or moved to Archive. Continue?'
+        )
+      ) {
+        try {
+          saveTemplateButton.disabled = true
+          saveTemplateButton.textContent = 'Applying changes...'
+
+          // Apply the template changes with cleanup
+          await this.plugin.applySelectedTemplateWithCleanup()
+
+          // Show success message
+          saveTemplateButton.textContent = 'Changes applied successfully!'
+
+          // Reset button after a delay
+          setTimeout(() => {
+            saveTemplateButton.disabled = false
+            saveTemplateButton.textContent = 'Apply Template Changes'
+          }, 2000)
+        } catch (error) {
+          saveTemplateButton.textContent = 'Error applying changes'
+          console.error('Error applying template:', error)
+
+          // Reset button after a delay
+          setTimeout(() => {
+            saveTemplateButton.disabled = false
+            saveTemplateButton.textContent = 'Apply Template Changes'
+          }, 2000)
+        }
+      }
     })
 
     new Setting(containerEl)

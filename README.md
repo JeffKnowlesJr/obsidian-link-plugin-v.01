@@ -290,3 +290,40 @@ If you encounter any issues or have suggestions, please visit our [GitHub reposi
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## For Contributors
+
+### Version Management and Changelog
+
+When contributing to this project, please follow these guidelines:
+
+1. **Version Increment**:
+
+   - Increment the version number in both `package.json` and `manifest.json` files
+   - Follow semantic versioning principles:
+     - MAJOR version for incompatible API changes (e.g., 1.2.0 → 2.0.0)
+     - MINOR version for added functionality in a backward compatible manner (e.g., 1.1.0 → 1.2.0)
+     - PATCH version for backward compatible bug fixes (e.g., 1.2.0 → 1.2.1)
+
+2. **Changelog Updates**:
+
+   - Document ALL changes in the CHANGELOG.md file
+   - Create a new version section at the top of the file with the new version number and date
+   - Categorize changes under appropriate headings (Added, Changed, Fixed, etc.)
+   - Write clear, user-focused descriptions of each change
+   - Mark breaking changes with **Breaking** in bold
+   - Update the version and date in existing entries if you're adding to an unreleased version
+
+3. **Commit Messages**:
+
+   - Include the version number in commit messages when updating version
+   - Example: "Bump version to 1.2.0 and update changelog"
+   - For routine changes: "feat: add new folder template option" or "fix: resolve moment.js typing issues"
+
+4. **Pull Requests**:
+   - Reference the version number in PR titles when they include version bumps
+   - Include a summary of changelog additions in the PR description
+
+These practices ensure proper tracking of changes and help users understand what has changed between versions.
+
+### Build System

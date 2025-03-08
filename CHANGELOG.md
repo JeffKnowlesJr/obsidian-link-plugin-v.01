@@ -5,14 +5,100 @@ All notable changes to the Obsidian Link Plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2024-01-XX
+## [2.4.0] - 2024-03-08
+
+### Added
+
+- Intelligent Archive folder content restoration when applying templates
+- Template-aware folder preservation to maintain empty template folders
+- Recursive folder structure merging when restoring from Archive
+- Improved folder cleanup to preserve template structure
 
 ### Fixed
 
-- Fixed duplicate function declarations in folderUtils.ts
-- Fixed moment.js type issues and imports
-- Fixed test utilities to properly mock Obsidian's Plugin class
-- Fixed template manager tests and implementations
+- Fixed issues with empty template folders being incorrectly deleted
+- Fixed folder structure handling to ensure template integrity
+- Prevented accidental deletion of important empty folders
+
+## [2.3.0] - 2024-03-08
+
+### Added
+
+- Highly configurable Custom template for precise folder selection
+- Added toggles to select which main folders to include in custom templates
+
+### Changed
+
+- Simplified templates to focus on essential use cases
+- Improved Minimal template to only include Journal and References
+- Enhanced folder movement logic to ensure proper cleanup
+
+### Fixed
+
+- Fixed an issue where Documents folder wasn't properly moved when switching to Minimal template
+
+## [2.2.0] - 2024-03-08
+
+### Added
+
+- Added "Apply Template Changes" button to the settings tab
+- Added automatic cleanup of unused folders when switching templates
+- Added automatic archiving of non-empty folders to Archive directory
+
+### Changed
+
+- Redesigned folder templates UI with a more compact card-based layout
+- Improved template selection experience with visual feedback
+- Enhanced Archive folder handling to better organize unused content
+
+## [2.1.0] - 2024-03-08
+
+### Added
+
+- Support for creating linked notes without an active markdown editor
+
+### Changed
+
+- Changed folder structure to use full month names instead of abbreviated names
+
+### Fixed
+
+- Fixed ribbon icon functionality to properly open the note creation modal
+- Fixed modal implementation to correctly handle user input
+- Fixed selected text pre-filling in the note creation modal
+- Improved date handling in the journal note creation workflow
+- Added proper error handling for the note creation process
+- Fixed file path construction for different folder schemas
+
+## [2.0.0] - 2024-03-08
+
+Version 2 is a major rewrite of the plugin with significant architectural improvements and new features.
+
+### Added
+
+- Coming soon...
+
+### Changed
+
+- **Breaking**: Complete architectural restructuring
+- **Breaking**: New configuration format
+
+### Removed
+
+- Legacy compatibility with pre-1.0 settings
+
+## [1.2.0] - 2025-03-07 (Final Version 1.x Release)
+
+### Fixed
+
+- Fixed moment.js import issues in createLinkedNote.ts
+- Updated type definitions in modals/newNoteModal.ts to use proper Moment types
+- Simplified templateSystem.integration.test.ts to focus on core functionality
+- Removed problematic tests from settingTab.test.ts
+- Fixed test setup file to be recognized as a module
+- Added proper mocks in test utilities
+- Cleaned up test implementations to match actual code functionality
+- Fixed build and deployment process for seamless updates
 
 ### Changed
 
@@ -61,3 +147,5 @@ For future git updates to this repository:
    - MAJOR version for incompatible API changes
    - MINOR version for added functionality in a backward compatible manner
    - PATCH version for backward compatible bug fixes
+
+### Build System

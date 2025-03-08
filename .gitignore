@@ -1,30 +1,31 @@
 # Build output
 main.js
 *.js.map
+dist/
 
-# Dependencies
+# Node.js dependencies
 node_modules/
 
-# IDE
-.idea/
+# IDE files
 .vscode/
-*.swp
-*.swo
+.idea/
+*.code-workspace
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
 
 # Test coverage
 coverage/
 
 # Logs
-*.log
 npm-debug.log*
 
 # Environment variables
 .env
 .env.local
-
-# Distribution files
-dist/

@@ -1,56 +1,75 @@
-// Mock Moment.js functionality
-export const moment = (input?: any) => ({
-  format: jest.fn((format) =>
-    format ? `formatted-${input || 'now'}-${format}` : ''
-  ),
-  add: jest.fn().mockReturnThis(),
-  subtract: jest.fn().mockReturnThis(),
-  isValid: jest.fn().mockReturnValue(true)
-})
-moment.now = jest.fn(() => 'now')
+// Mock moment implementation that doesn't rely on Jest
+export const moment = function (date?: any) {
+  return {
+    format: function (format?: string) {
+      return format ? `formatted-${format}` : 'formatted-date'
+    },
+    add: function (value: any, unit: any) {
+      return this
+    },
+    subtract: function (value: any, unit: any) {
+      return this
+    },
+    isValid: function () {
+      return true
+    }
+  }
+}
 
-// Export mocked Obsidian APIs
+moment.now = function () {
+  return 'now'
+}
+
+// Mock classes
 export class WorkspaceLeaf {
-  view: any
-  constructor() {
-    this.view = {}
+  view: any = {}
+
+  open() {
+    return Promise.resolve()
+  }
+  getViewState() {
+    return {}
+  }
+  setViewState() {
+    return Promise.resolve()
   }
 }
 
 export class Plugin {
-  app: App
-  manifest: any
-  constructor(app: App, manifest: any) {
-    this.app = app
-    this.manifest = manifest
+  settings: any = {}
+
+  loadData() {
+    return Promise.resolve({})
   }
-  loadData = jest.fn().mockResolvedValue({})
-  saveData = jest.fn().mockResolvedValue(undefined)
-  registerEvent = jest.fn()
-  registerInterval = jest.fn()
-  registerDomEvent = jest.fn()
-  addRibbonIcon = jest.fn()
-  addStatusBarItem = jest.fn()
-  addCommand = jest.fn()
-  addSettingTab = jest.fn()
+  saveData() {
+    return Promise.resolve()
+  }
+  registerEvent() {}
+  registerInterval() {}
+  registerDomEvent() {}
+  addRibbonIcon() {}
+  addStatusBarItem() {}
+  addCommand() {}
+  addSettingTab() {}
 }
 
 export class TFile {
   path: string
   basename: string
   extension: string
+
   constructor(path: string) {
     this.path = path
-    const parts = path.split('/')
-    const filename = parts[parts.length - 1]
-    const [basename, extension] = filename.split('.')
-    this.basename = basename
-    this.extension = extension || ''
+    const parts = path.split('.')
+    this.extension = parts.pop() || ''
+    this.basename = parts.join('.')
   }
 }
 
 export class TFolder {
   path: string
+  children: (TFile | TFolder)[] = []
+
   constructor(path: string) {
     this.path = path
   }
@@ -58,74 +77,82 @@ export class TFolder {
 
 export class Notice {
   constructor(message: string) {
-    console.log('Notice:', message)
+    console.log(`Notice: ${message}`)
   }
 }
 
 export class Modal {
-  app: App
-  contentEl: HTMLElement
-  constructor(app: App) {
-    this.app = app
-    this.contentEl = document.createElement('div')
-  }
-  open = jest.fn()
-  close = jest.fn()
-  onOpen = jest.fn()
-  onClose = jest.fn()
+  open() {}
+  close() {}
+  onOpen() {}
+  onClose() {}
 }
 
 export class Setting {
-  constructor() {}
-  setName = jest.fn().mockReturnThis()
-  setDesc = jest.fn().mockReturnThis()
-  addText = jest.fn().mockReturnThis()
-  addToggle = jest.fn().mockReturnThis()
-  addButton = jest.fn().mockReturnThis()
-  addDropdown = jest.fn().mockReturnThis()
-  addSlider = jest.fn().mockReturnThis()
-}
+  containerEl: HTMLElement = document.createElement('div')
 
-export interface App {
-  vault: Vault
-  workspace: Workspace
-  metadataCache: MetadataCache
-}
-
-export interface MetadataCache {
-  getFirstLinkpathDest: (linkpath: string) => TFile | null
-  getFileCache: (file: TFile) => any
-  getCache: (path: string) => any
-  fileToLinktext: (
-    file: TFile,
-    sourcePath: string,
-    omitMdExtension?: boolean
-  ) => string
-  resolveSubpath: (file: TFile, subpath: string) => any
-  getLinkSuggestions: () => any[]
-  onCleanCache: (callback: (file: TFile) => void) => void
-  on: (name: string, callback: (file: TFile) => void) => void
-  off: (name: string, callback: (file: TFile) => void) => void
-  trigger: (name: string, file: TFile) => void
-}
-
-export interface Vault {
-  adapter: {
-    exists: (path: string) => Promise<boolean>
-    read: (path: string) => Promise<string>
-    write: (path: string, data: string) => Promise<void>
-    mkdir: (path: string) => Promise<void>
-    trashSystem: boolean
+  setName() {
+    return this
   }
-  create: (path: string, data: string) => Promise<TFile>
-  createFolder: (path: string) => Promise<void>
-  delete: (file: TFile, force?: boolean) => Promise<void>
-  read: (file: TFile) => Promise<string>
-  modify: (file: TFile, data: string) => Promise<void>
-  getAbstractFileByPath: (path: string) => TFile | null
+  setDesc() {
+    return this
+  }
+  addText() {
+    return this
+  }
+  addToggle() {
+    return this
+  }
+  addButton() {
+    return this
+  }
+  addDropdown() {
+    return this
+  }
+  addSlider() {
+    return this
+  }
 }
 
-export interface Workspace {
-  activeLeaf: WorkspaceLeaf | null
-  getLeavesOfType: (type: string) => WorkspaceLeaf[]
+// Mock interfaces
+export interface App {
+  workspace: {
+    activeLeaf: WorkspaceLeaf
+    getLeaf(): WorkspaceLeaf
+  }
+  vault: {
+    getAbstractFileByPath(path: string): TFile | TFolder | null
+    adapter: {
+      read(path: string): Promise<string>
+      write(path: string, data: string): Promise<void>
+      exists(path: string): Promise<boolean>
+    }
+    createFolder(path: string): Promise<TFolder>
+    delete(file: TFile | TFolder): Promise<void>
+    create(path: string, data: string): Promise<TFile>
+  }
+  metadataCache: {
+    getFileCache(file: TFile): any
+  }
 }
+
+export const createApp = (): App => ({
+  workspace: {
+    activeLeaf: new WorkspaceLeaf(),
+    getLeaf: () => new WorkspaceLeaf()
+  },
+  vault: {
+    getAbstractFileByPath: () => null,
+    adapter: {
+      read: () => Promise.resolve(''),
+      write: () => Promise.resolve(),
+      exists: () => Promise.resolve(false)
+    },
+    createFolder: () => Promise.resolve(new TFolder('')),
+    delete: () => Promise.resolve(),
+    create: () => Promise.resolve(new TFile(''))
+  },
+  metadataCache: {
+    getFileCache: () => ({})
+  }
+})

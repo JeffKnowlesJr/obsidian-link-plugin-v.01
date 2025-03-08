@@ -1,6 +1,36 @@
 {
+  "autoUpdateMonthlyFolders": true,
+  "checkIntervalMinutes": 60,
+  "checkIntervalVariance": 5,
+  "dailyNotesLocation": "_Link/_Journal/y_2025/March",
+  "folderTemplates": [
+    {
+      "id": "default",
+      "name": "Default Structure",
+      "description": "The default folder structure with all components",
+      "isEnabled": true,
+      "structure": "{\"Journal\":{\"y_$YEAR$\":{\"$MONTH$\":{}}},\"Documents\":{\"Images\":{},\"Videos\":{},\"Audio\":{},\"Other\":{}},\"Templates\":{},\"Workspace\":{\"Client-X\":{\"Project-Alpha\":{}},\"Client-Y\":{\"Project-Beta\":{}},\"Client-Self\":{\"Project-Zen\":{}}},\"References\":{\"Books\":{\"Technology\":{},\"Business\":{}},\"Articles\":{\"Blog-Posts\":{},\"Research\":{}},\"Courses\":{\"Online\":{},\"Certifications\":{}}},\"Archive\":{\"Completed-Projects\":{},\"Old-References\":{},\"Old-Templates\":{}}}"
+    },
+    {
+      "id": "minimal",
+      "name": "Minimal Structure",
+      "description": "Just the essential components (Journal and Templates)",
+      "isEnabled": true,
+      "structure": "{\"Journal\":{\"y_$YEAR$\":{\"$MONTH$\":{}}},\"Templates\":{}}"
+    },
+    {
+      "id": "research",
+      "name": "Research Focus",
+      "description": "Optimized for research and reference materials",
+      "isEnabled": false,
+      "structure": "{\"Journal\":{\"y_$YEAR$\":{\"$MONTH$\":{}}},\"Templates\":{},\"References\":{\"Books\":{\"Technology\":{},\"Science\":{},\"Humanities\":{}},\"Papers\":{\"Published\":{},\"Drafts\":{},\"References\":{}},\"Research-Notes\":{\"Experiments\":{},\"Observations\":{},\"Ideas\":{}}},\"Archive\":{}}"
+    }
+  ],
+  "activeTemplateId": "default",
+  "folderStructureType": "legacy",
+  "alwaysEnsureArchive": true,
+  "hugoCompatibleLinks": true,
   "defaultLinkStyle": "markdown",
   "autoFormatLinks": true,
-  "dailyNotesLocation": "_Link/_Journal/y_2025/m_02_Feb",
   "autoRevealFile": true
 }

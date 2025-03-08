@@ -1,4 +1,5 @@
 import moment from 'moment'
+import type { Moment } from 'moment'
 
 // Helper to get the correct moment instance
 export const getMoment = () => {
@@ -6,12 +7,13 @@ export const getMoment = () => {
 }
 
 // Wrapper functions for common moment operations
-export const formatDate = (date: string | Date) =>
+export const formatDate = (date: string | Date | Moment) =>
   moment(date).format('YYYY-MM-DD')
 export const formatTime = () => moment().format('HH:mm')
-export const subtractDay = (date: string | Date) =>
+export const subtractDay = (date: string | Date | Moment) =>
   moment(date).subtract(1, 'day')
-export const addDay = (date: string | Date) => moment(date).add(1, 'day')
+export const addDay = (date: string | Date | Moment) =>
+  moment(date).add(1, 'day')
 export const getCurrentMoment = () => moment()
 
 export const getCurrentDate = () => {
